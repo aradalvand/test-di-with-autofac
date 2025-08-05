@@ -1,20 +1,20 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
-services.AddSingleton(typeof(IBar<>), typeof(FooBar<>));
-services.AddSingleton(typeof(IBar<>), typeof(GeneralBar<>));
+services.AddSingleton<IFoo, Foo1>();
+services.AddScoped<IFoo, Foo2>();
 
 var sp = services.BuildServiceProvider();
+var singletonFoo = sp.GetRequiredService<IFoo>();
 
-var bar1 = sp.GetServices<IBar<Foo>>();
-Console.WriteLine($"IBar<Foo>s: {string.Join(", ", bar1.Select(e => e.GetType().Name))}");
+Console.WriteLine($"SINGLETON: {sp.GetRequiredService<IFoo>().GetType()}");
 
-var bar2 = sp.GetServices<IBar<int>>();
-Console.WriteLine($"IBar<int>s: {string.Join(", ", bar2.Select(e => e.GetType().Name))}");
-
-public interface IBar<T> : IFoo;
-public class FooBar<T> : IBar<T> where T : IFoo;
-public class GeneralBar<T> : IBar<T>;
+using (var scope = sp.CreateScope())
+{
+    var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
+    Console.WriteLine($"SCOPED: {scope.ServiceProvider.GetRequiredService<IFoo>().GetType()}");
+}
 
 public interface IFoo;
-public class Foo : IFoo;
+public class Foo1 : IFoo;
+public class Foo2 : IFoo;
