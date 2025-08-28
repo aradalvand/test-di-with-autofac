@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Collections.Immutable;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var services = new ServiceCollection();
@@ -23,18 +24,12 @@ using (var scope = sp.CreateScope())
 public interface IFoo;
 public class Foo1 : IFoo;
 
-public class S : IServiceScopeFactory
+public sealed class CustomServiceProvider : IServiceProvider, IDisposable
 {
-    public IServiceScope CreateScope()
-    {
-        Console.WriteLine("HERE");
-        throw new NotImplementedException();
-    }
-}
-
-public sealed class CustomServiceProvider : IServiceProvider
-{
-    private readonly IServiceProvider _underlyingProvider;
+    private readonly List<Type> _singletonMadeScopedServiceTypes = [];
+    private readonly ServiceProvider _underlyingProvider;
+    private readonly IServiceScope _singletonScope;
+    private readonly ScopeFactory _scopeFactory;
     public CustomServiceProvider(IServiceCollection services)
     {
         foreach (var singletonService in services.Where(s => s.Lifetime is ServiceLifetime.Singleton).ToList())
@@ -42,15 +37,51 @@ public sealed class CustomServiceProvider : IServiceProvider
             var scopedEquivalent = singletonService.WithLifetime(ServiceLifetime.Scoped);
             services.Remove(singletonService);
             services.Add(scopedEquivalent);
+
+            _singletonMadeScopedServiceTypes.Add(singletonService.ServiceType);
         }
         _underlyingProvider = services.BuildServiceProvider();
+        _singletonScope = _underlyingProvider.CreateScope();
+        _scopeFactory = new(this);
     }
 
     public object? GetService(Type serviceType)
     {
         if (serviceType == typeof(IServiceScopeFactory))
-            return new S();
+            return _scopeFactory;
+
         return _underlyingProvider.GetService(serviceType);
+    }
+
+    public void Dispose() =>
+        _singletonScope.Dispose();
+
+    private sealed class ScopeFactory(
+        CustomServiceProvider parent
+    ) : IServiceScopeFactory
+    {
+        public IServiceScope CreateScope() =>
+            new Scope(parent, this);
+    }
+
+    private sealed class Scope(
+        CustomServiceProvider provider,
+        ScopeFactory scopeFactory
+    ) : IServiceScope, IServiceProvider
+    {
+        private readonly IServiceScope _scope = provider._underlyingProvider.CreateScope();
+        public IServiceProvider ServiceProvider => this;
+        public void Dispose() { }
+
+        public object? GetService(Type serviceType)
+        {
+            if (serviceType == typeof(IServiceScopeFactory))
+                return scopeFactory;
+
+            if (provider._singletonMadeScopedServiceTypes.Contains(serviceType))
+                return provider._singletonScope.ServiceProvider.GetService(serviceType);
+            return _scope.ServiceProvider.GetService(serviceType);
+        }
     }
 }
 
