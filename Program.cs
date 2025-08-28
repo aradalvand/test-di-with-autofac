@@ -88,7 +88,9 @@ public class Bar1 : IBar;
 
 public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 {
+    private readonly List<Type> _singletonMadeScopedServiceTypes = [];
     private readonly ServiceProvider _underlyingProvider;
+    private readonly Lazy<IServiceScope> _singletonScope;
     public TestServiceProvider(IServiceCollection services)
     {
         foreach (var singletonService in services.Where(s => s.Lifetime is ServiceLifetime.Singleton).ToList())
@@ -96,8 +98,11 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
             var scopedEquivalent = singletonService.WithLifetime(ServiceLifetime.Scoped);
             services.Remove(singletonService);
             services.Add(scopedEquivalent);
+
+            _singletonMadeScopedServiceTypes.Add(singletonService.ServiceType);
         }
         _underlyingProvider = services.BuildServiceProvider();
+        _singletonScope = new(_underlyingProvider.CreateScope);
     }
 
     object? IServiceProvider.GetService(Type serviceType) =>
@@ -112,16 +117,19 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
         TestServiceProvider provider
     ) : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
-        private readonly Lazy<IServiceScope> _singletonScope = new(provider._underlyingProvider.CreateScope);
+        private readonly Lazy<IServiceScope> _newScope = new(provider._underlyingProvider.CreateScope);
 
         IServiceProvider IServiceScope.ServiceProvider => this;
-        IServiceScope IServiceScopeFactory.CreateScope() => this;
+        IServiceScope IServiceScopeFactory.CreateScope() => new Scope(provider);
         object? IServiceProvider.GetService(Type serviceType)
         {
             if (serviceType == typeof(IServiceScopeFactory))
                 return this;
 
-            return _singletonScope.Value.ServiceProvider.GetService(serviceType);
+            if (provider._singletonMadeScopedServiceTypes.Contains(serviceType))
+                return provider._singletonScope.Value.ServiceProvider.GetService(serviceType);
+
+            return _newScope.Value.ServiceProvider.GetService(serviceType);
         }
 
         public void Dispose() { }
