@@ -12,8 +12,6 @@ var sp = new TestServiceProvider(services);
 var host1 = new TestHost(sp);
 await host1.StartAsync();
 
-var d = ActivatorUtilities.GetServiceOrCreateInstance<Dependent>(host1.Services);
-d.Do();
 using (var scope = sp.CreateScope())
 {
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
@@ -53,14 +51,16 @@ using (var scope = sp.CreateScope())
 await host2.StopAsync();
 
 public sealed class Worker(
-    IFoo foo
+    IServiceProvider serviceProvider
 ) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
-            Console.WriteLine($"Worker — IFoo {foo.GetHashCode()}");
+            using var scope = serviceProvider.CreateScope();
+            var foo = scope.ServiceProvider.GetRequiredService<IFoo>();
+            Console.WriteLine($"Worker — serviceProvider {serviceProvider.GetType()} / {serviceProvider.GetHashCode()} — IFoo {foo.GetHashCode()}"); // TODO: FUCKt's
             await Task.Delay(100_000, stoppingToken);
         }
         finally
@@ -70,12 +70,11 @@ public sealed class Worker(
     }
 }
 
-public sealed class Dependent(
-    IFoo foo
-)
-{
-    public void Do() => Console.WriteLine(foo.GetHashCode());
-}
+// public sealed class Dependent(
+// )
+// {
+//     public void Do() => Console.WriteLine(foo.GetHashCode());
+// }
 
 public interface IFoo;
 public class Foo1 : IFoo;
