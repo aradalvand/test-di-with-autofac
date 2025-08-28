@@ -4,17 +4,17 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var services = new ServiceCollection();
-services.AddSingleton<IFoo, Foo1>();
-services.AddSingleton<IBar, Bar1>();
-services.AddSingleton<Worker>();
+// services.AddScoped<IFoo, Foo1>();
+// services.AddScoped<IBar, Bar1>();
+// services.AddScoped<Worker>();
 
 var sp = new TestServiceProvider(services);
-var host1 = new TestHost(sp);
-await host1.StartAsync();
-var worker = host1.Services.GetRequiredService<Worker>();
-worker.Do();
+// var host1 = new TestHost(sp);
+// await host1.StartAsync();
 using (var scope = sp.CreateScope())
 {
+    var worker = scope.ServiceProvider.GetRequiredService<Worker>();
+    worker.Do();
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
@@ -28,12 +28,12 @@ using (var scope = sp.CreateScope())
         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
 }
-await host1.StopAsync();
+// await host1.StopAsync();
 
 Console.WriteLine("---");
 
-var host2 = new TestHost(new(services));
-await host2.StartAsync();
+// var host2 = new TestHost(sp);
+// await host2.StartAsync();
 using (var scope = sp.CreateScope())
 {
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
@@ -49,7 +49,7 @@ using (var scope = sp.CreateScope())
         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
 }
-await host2.StopAsync();
+// await host2.StopAsync();
 
 public sealed class Worker(
     IServiceProvider serviceProvider
@@ -72,40 +72,54 @@ public class Bar1 : IBar;
 public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 {
     private readonly IContainer _container;
-    private readonly Lazy<ILifetimeScope> _singletonScope;
     public TestServiceProvider(IServiceCollection services)
     {
-        var singletonServices = services
-            .Where(s => s.Lifetime is ServiceLifetime.Singleton)
-            .ToList();
-
         var builder = new ContainerBuilder();
-        builder.Populate(services.Except(singletonServices));
+        // builder.Populate(services);
+        builder.RegisterType<Foo1>().As<IFoo>().InstancePerMatchingLifetimeScope("FOO");
+        builder.RegisterType<Bar1>().As<IBar>().InstancePerMatchingLifetimeScope("FOO");
+        builder.RegisterType<Worker>().InstancePerMatchingLifetimeScope("FOO");
 
         builder.RegisterInstance<IServiceProvider>(this);
         builder.RegisterInstance<IServiceScopeFactory>(this);
 
         _container = builder.Build();
-
         foreach (var registration in _container.ComponentRegistry.Registrations)
+        {
             Console.WriteLine($"REGISTRATION: {registration.Activator.LimitType}");
-
-        _singletonScope = new(_container.BeginLifetimeScope(builder => builder.Populate(singletonServices)));
+        }
+        Console.WriteLine($"FOO: {_container.Resolve<IServiceProvider>().GetType()}");
     }
 
-    object? IServiceProvider.GetService(Type serviceType) =>
-        _container.Resolve(serviceType);
+    object? IServiceProvider.GetService(Type serviceType)
+    {
+        return _container.Resolve(serviceType);
+    }
 
     IServiceScope IServiceScopeFactory.CreateScope() =>
         new Scope(this);
 
-    private sealed class Scope(
-        TestServiceProvider provider
-    ) : IServiceScope, IServiceProvider
+    private sealed class Scope : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
+        private readonly ILifetimeScope _scope;
+        public Scope(TestServiceProvider parent)
+        {
+            _scope = parent._container.BeginLifetimeScope("FOO", cb =>
+            {
+                cb.RegisterInstance<IServiceProvider>(this);
+                cb.RegisterInstance<IServiceScopeFactory>(this);
+            });
+        }
+        public Scope(ILifetimeScope scope)
+        {
+            _scope = scope;
+        }
         IServiceProvider IServiceScope.ServiceProvider => this;
-        object? IServiceProvider.GetService(Type serviceType) =>
-            provider._singletonScope.Value.Resolve(serviceType);
+        IServiceScope IServiceScopeFactory.CreateScope() => new Scope(_scope.BeginLifetimeScope());
+        object? IServiceProvider.GetService(Type serviceType)
+        {
+            return _scope.Resolve(serviceType);
+        }
 
         public void Dispose() { }
     }
