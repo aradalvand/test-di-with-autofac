@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var services = new ServiceCollection();
 services.AddSingleton<IFoo, Foo1>();
+services.AddScoped<IBar, Bar1>();
 // services.AddSingleton<IServiceScopeFactory, S>();
 
 // var sp = services.BuildServiceProvider();
@@ -12,28 +13,40 @@ var sp = new CustomServiceProvider(services);
 using (var scope = sp.CreateScope())
 {
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
-    Console.WriteLine($"SCOPED: {scopedFoo.GetHashCode()}");
+    var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
+    Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
+    Console.WriteLine($"SCOPED IBar: {scopedBar.GetHashCode()}");
 
     using (var scope2 = scope.ServiceProvider.CreateScope())
     {
         var scopedFoo2 = scope2.ServiceProvider.GetRequiredService<IFoo>();
-        Console.WriteLine($"SCOPED: {scopedFoo2.GetHashCode()}");
+        var scopedBar2 = scope2.ServiceProvider.GetRequiredService<IBar>();
+        Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
+        Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
 }
-using (var otherScope = sp.CreateScope())
+Console.WriteLine("---");
+using (var scope = sp.CreateScope())
 {
-    var scopedFoo = otherScope.ServiceProvider.GetRequiredService<IFoo>();
-    Console.WriteLine($"SCOPED: {scopedFoo.GetHashCode()}");
+    var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
+    var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
+    Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
+    Console.WriteLine($"SCOPED IBar: {scopedBar.GetHashCode()}");
 
-    using (var scope2 = otherScope.ServiceProvider.CreateScope())
+    using (var scope2 = scope.ServiceProvider.CreateScope())
     {
         var scopedFoo2 = scope2.ServiceProvider.GetRequiredService<IFoo>();
-        Console.WriteLine($"SCOPED: {scopedFoo2.GetHashCode()}");
+        var scopedBar2 = scope2.ServiceProvider.GetRequiredService<IBar>();
+        Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
+        Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
 }
 
 public interface IFoo;
 public class Foo1 : IFoo;
+
+public interface IBar;
+public class Bar1 : IBar;
 
 public sealed class CustomServiceProvider : IServiceProvider
 {
