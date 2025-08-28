@@ -101,14 +101,11 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 
     private sealed class Scope(
         TestServiceProvider provider
-    ) : IServiceScopeFactory, IServiceScope, IServiceProvider
+    ) : IServiceScope, IServiceProvider
     {
         IServiceProvider IServiceScope.ServiceProvider => this;
-        IServiceScope IServiceScopeFactory.CreateScope() => new Scope(provider);
-        object? IServiceProvider.GetService(Type serviceType)
-        {
-            return provider._singletonScope.Value.Resolve(serviceType);
-        }
+        object? IServiceProvider.GetService(Type serviceType) =>
+            provider._singletonScope.Value.Resolve(serviceType);
 
         public void Dispose() { }
     }
