@@ -4,9 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var services = new ServiceCollection();
-// services.AddScoped<IFoo, Foo1>();
-// services.AddScoped<IBar, Bar1>();
-// services.AddScoped<Worker>();
+services.AddSingleton<IFoo, Foo1>();
+services.AddSingleton<IBar, Bar1>();
+services.AddSingleton<Worker>();
 
 var sp = new TestServiceProvider(services);
 // var host1 = new TestHost(sp);
@@ -71,24 +71,15 @@ public class Bar1 : IBar;
 
 public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 {
+    private const string LifetimeScopeTag = "SCOPED_SINGLETON";
     private readonly IContainer _container;
     public TestServiceProvider(IServiceCollection services)
     {
         var builder = new ContainerBuilder();
-        // builder.Populate(services);
-        builder.RegisterType<Foo1>().As<IFoo>().InstancePerMatchingLifetimeScope("FOO");
-        builder.RegisterType<Bar1>().As<IBar>().InstancePerMatchingLifetimeScope("FOO");
-        builder.RegisterType<Worker>().InstancePerMatchingLifetimeScope("FOO");
-
+        builder.Populate(services, lifetimeScopeTagForSingletons: LifetimeScopeTag);
         builder.RegisterInstance<IServiceProvider>(this);
         builder.RegisterInstance<IServiceScopeFactory>(this);
-
         _container = builder.Build();
-        foreach (var registration in _container.ComponentRegistry.Registrations)
-        {
-            Console.WriteLine($"REGISTRATION: {registration.Activator.LimitType}");
-        }
-        Console.WriteLine($"FOO: {_container.Resolve<IServiceProvider>().GetType()}");
     }
 
     object? IServiceProvider.GetService(Type serviceType)
@@ -102,18 +93,17 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
     private sealed class Scope : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
         private readonly ILifetimeScope _scope;
-        public Scope(TestServiceProvider parent)
-        {
-            _scope = parent._container.BeginLifetimeScope("FOO", cb =>
+
+        public Scope(TestServiceProvider parent) =>
+            _scope = parent._container.BeginLifetimeScope(LifetimeScopeTag, cb =>
             {
                 cb.RegisterInstance<IServiceProvider>(this);
                 cb.RegisterInstance<IServiceScopeFactory>(this);
             });
-        }
-        public Scope(ILifetimeScope scope)
-        {
+
+        public Scope(ILifetimeScope scope) =>
             _scope = scope;
-        }
+
         IServiceProvider IServiceScope.ServiceProvider => this;
         IServiceScope IServiceScopeFactory.CreateScope() => new Scope(_scope.BeginLifetimeScope());
         object? IServiceProvider.GetService(Type serviceType)
