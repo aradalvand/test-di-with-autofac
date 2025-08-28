@@ -4,7 +4,8 @@ var services = new ServiceCollection();
 services.AddScoped<IFoo, Foo1>();
 // services.AddSingleton<IServiceScopeFactory, S>();
 
-var sp = services.BuildServiceProvider();
+// var sp = services.BuildServiceProvider();
+var sp = new CustomServiceProvider(services);
 
 using (var scope = sp.CreateScope())
 {
@@ -27,5 +28,21 @@ public class S : IServiceScopeFactory
     {
         Console.WriteLine("HERE");
         throw new NotImplementedException();
+    }
+}
+
+public sealed class CustomServiceProvider : IServiceProvider
+{
+    private readonly IServiceProvider _underlyingProvider;
+    public CustomServiceProvider(IServiceCollection services)
+    {
+        _underlyingProvider = services.BuildServiceProvider();
+    }
+
+    public object? GetService(Type serviceType)
+    {
+        if (serviceType == typeof(IServiceScopeFactory))
+            return new S();
+        return _underlyingProvider.GetService(serviceType);
     }
 }
