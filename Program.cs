@@ -1,17 +1,18 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Autofac;
+using Autofac.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var services = new ServiceCollection();
-services.AddSingleton<IFoo, Foo1>();
+services.AddScoped<IFoo, Foo1>();
 services.AddScoped<IBar, Bar1>();
-services.Configure<Fuck>(f => f.Count = 123);
-services.AddHostedService<Worker>();
-// services.AddSingleton<IServiceScopeFactory, S>();
+// services.AddScoped<Worker>();
 
 var sp = new TestServiceProvider(services);
 var host1 = new TestHost(sp);
 await host1.StartAsync();
-
+var worker = host1.Services.GetRequiredService<Worker>();
+worker.Do();
 using (var scope = sp.CreateScope())
 {
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
@@ -52,21 +53,13 @@ await host2.StopAsync();
 
 public sealed class Worker(
     IServiceProvider serviceProvider
-) : BackgroundService
+)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public void Do()
     {
-        try
-        {
-            using var scope = serviceProvider.CreateScope();
-            var foo = scope.ServiceProvider.GetRequiredService<IFoo>();
-            Console.WriteLine($"Worker — serviceProvider {serviceProvider.GetType()} / {serviceProvider.GetHashCode()} — IFoo {foo.GetHashCode()}"); // TODO: the `IFoo`'s GetHashCode here will be different than the ones in the Console.WriteLines above
-            await Task.Delay(100_000, stoppingToken);
-        }
-        finally
-        {
-            Console.WriteLine("Worker over");
-        }
+        using var scope = serviceProvider.CreateScope();
+        var foo = scope.ServiceProvider.GetRequiredService<IFoo>();
+        Console.WriteLine($"Worker — serviceProvider {serviceProvider.GetType()} / {serviceProvider.GetHashCode()} — IFoo {foo.GetHashCode()}"); // TODO: the `IFoo`'s GetHashCode here will be different than the ones in the Console.WriteLines above
     }
 }
 
@@ -78,27 +71,25 @@ public class Bar1 : IBar;
 
 public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 {
-    private readonly List<Type> _singletonMadeScopedServiceTypes = [];
-    private readonly ServiceProvider _underlyingProvider;
-    private readonly Lazy<IServiceScope> _singletonScope;
+    private readonly IContainer _container;
+    private readonly Lazy<ILifetimeScope> _singletonScope;
     public TestServiceProvider(IServiceCollection services)
     {
-        foreach (var singletonService in services.Where(s => s.Lifetime is ServiceLifetime.Singleton).ToList())
+        var builder = new ContainerBuilder();
+        builder.Populate(services);
+        builder.RegisterType<Worker>().InstancePerMatchingLifetimeScope("FOO");
+        builder.RegisterInstance<IServiceProvider>(this);
+        builder.RegisterInstance<IServiceScopeFactory>(this);
+        _container = builder.Build();
+        foreach (var registration in _container.ComponentRegistry.Registrations)
         {
-            var scopedEquivalent = singletonService.WithLifetime(ServiceLifetime.Scoped, skipSingletonsWithInstances: true);
-            services.Remove(singletonService);
-            services.Add(scopedEquivalent);
-
-            _singletonMadeScopedServiceTypes.Add(singletonService.ServiceType);
+            Console.WriteLine($"REGISTRATION: {registration.Activator.LimitType}");
         }
-        _underlyingProvider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
-        _singletonScope = new(_underlyingProvider.CreateScope);
+        _singletonScope = new(_container.BeginLifetimeScope("FOO"));
     }
 
     object? IServiceProvider.GetService(Type serviceType) =>
-        serviceType == typeof(IServiceScopeFactory)
-            ? this
-            : _underlyingProvider.GetService(serviceType);
+        _container.Resolve(serviceType);
 
     IServiceScope IServiceScopeFactory.CreateScope() =>
         new Scope(this);
@@ -111,13 +102,7 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
         IServiceScope IServiceScopeFactory.CreateScope() => new Scope(provider);
         object? IServiceProvider.GetService(Type serviceType)
         {
-            if (serviceType == typeof(IServiceScopeFactory))
-                return this;
-
-            if (serviceType == typeof(IServiceProvider))
-                return this; // Inject this scope, not the singleton scope
-
-            return provider._singletonScope.Value.ServiceProvider.GetService(serviceType);
+            return provider._singletonScope.Value.Resolve(serviceType);
         }
 
         public void Dispose() { }
