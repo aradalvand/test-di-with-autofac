@@ -4,9 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var services = new ServiceCollection();
-services.AddScoped<IFoo, Foo1>();
-services.AddScoped<IBar, Bar1>();
-// services.AddScoped<Worker>();
+services.AddSingleton<IFoo, Foo1>();
+services.AddSingleton<IBar, Bar1>();
+services.AddSingleton<Worker>();
 
 var sp = new TestServiceProvider(services);
 var host1 = new TestHost(sp);
@@ -75,17 +75,22 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
     private readonly Lazy<ILifetimeScope> _singletonScope;
     public TestServiceProvider(IServiceCollection services)
     {
+        var singletonServices = services
+            .Where(s => s.Lifetime is ServiceLifetime.Singleton)
+            .ToList();
+
         var builder = new ContainerBuilder();
-        builder.Populate(services);
-        builder.RegisterType<Worker>().InstancePerMatchingLifetimeScope("FOO");
+        builder.Populate(services.Except(singletonServices));
+
         builder.RegisterInstance<IServiceProvider>(this);
         builder.RegisterInstance<IServiceScopeFactory>(this);
+
         _container = builder.Build();
+
         foreach (var registration in _container.ComponentRegistry.Registrations)
-        {
             Console.WriteLine($"REGISTRATION: {registration.Activator.LimitType}");
-        }
-        _singletonScope = new(_container.BeginLifetimeScope("FOO"));
+
+        _singletonScope = new(_container.BeginLifetimeScope(builder => builder.Populate(singletonServices)));
     }
 
     object? IServiceProvider.GetService(Type serviceType) =>
