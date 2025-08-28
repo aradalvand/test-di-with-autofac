@@ -7,11 +7,15 @@ services.AddScoped<IBar, Bar1>();
 services.AddHostedService<Worker>();
 // services.AddSingleton<IServiceScopeFactory, S>();
 
-// var sp = services.BuildServiceProvider();
-var host1 = new TestHost(new(services));
-await host1.StartAsync();
-using (var scope = host1.Services.CreateScope())
+var sp = new TestServiceProvider(services);
+// var host1 = new TestHost(sp);
+// await host1.StartAsync();
+using (var scope = sp.CreateScope())
 {
+    var hostedServices = scope.ServiceProvider.GetServices<IHostedService>();
+    foreach (var hostedService in hostedServices) // NOTE: We run the hosted services' `StartAsync` in order and sequentially because that's the standard behavior of the built-in hosts.
+        await hostedService.StartAsync(default);
+
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
@@ -24,15 +28,22 @@ using (var scope = host1.Services.CreateScope())
         Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
+
+    foreach (var hostedService in hostedServices)
+        await hostedService.StopAsync(default);
 }
-await host1.StopAsync();
+// await host1.StopAsync();
 
 Console.WriteLine("---");
 
-var host2 = new TestHost(new(services));
-await host2.StartAsync(); ;
-using (var scope = host2.Services.CreateScope())
+// var host2 = new TestHost(new(services));
+// await host2.StartAsync();
+using (var scope = sp.CreateScope())
 {
+    var hostedServices = scope.ServiceProvider.GetServices<IHostedService>();
+    foreach (var hostedService in hostedServices) // NOTE: We run the hosted services' `StartAsync` in order and sequentially because that's the standard behavior of the built-in hosts.
+        await hostedService.StartAsync(default);
+
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
@@ -45,8 +56,11 @@ using (var scope = host2.Services.CreateScope())
         Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
+
+    foreach (var hostedService in hostedServices)
+        await hostedService.StopAsync(default);
 }
-await host2.StopAsync();
+// await host2.StopAsync();
 
 public sealed class Worker(
     IFoo foo
@@ -56,7 +70,7 @@ public sealed class Worker(
     {
         try
         {
-            Console.WriteLine($"Worker: {foo.GetHashCode()}");
+            Console.WriteLine($"Worker — IFoo {foo.GetHashCode()}");
             await Task.Delay(100_000, stoppingToken);
         }
         finally
@@ -74,7 +88,6 @@ public class Bar1 : IBar;
 
 public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 {
-    private readonly List<Type> _singletonMadeScopedServiceTypes = [];
     private readonly ServiceProvider _underlyingProvider;
     public TestServiceProvider(IServiceCollection services)
     {
@@ -83,8 +96,6 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
             var scopedEquivalent = singletonService.WithLifetime(ServiceLifetime.Scoped);
             services.Remove(singletonService);
             services.Add(scopedEquivalent);
-
-            _singletonMadeScopedServiceTypes.Add(singletonService.ServiceType);
         }
         _underlyingProvider = services.BuildServiceProvider();
     }
@@ -95,26 +106,22 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
             : _underlyingProvider.GetService(serviceType);
 
     IServiceScope IServiceScopeFactory.CreateScope() =>
-        new Scope(this, new(_underlyingProvider.CreateScope));
+        new Scope(this);
 
     private sealed class Scope(
-        TestServiceProvider provider,
-        Lazy<IServiceScope> singletonScope
+        TestServiceProvider provider
     ) : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
-        private readonly Lazy<IServiceScope> _newScope = new(provider._underlyingProvider.CreateScope);
+        private readonly Lazy<IServiceScope> _singletonScope = new(provider._underlyingProvider.CreateScope);
 
         IServiceProvider IServiceScope.ServiceProvider => this;
-        IServiceScope IServiceScopeFactory.CreateScope() => new Scope(provider, singletonScope);
+        IServiceScope IServiceScopeFactory.CreateScope() => this;
         object? IServiceProvider.GetService(Type serviceType)
         {
             if (serviceType == typeof(IServiceScopeFactory))
                 return this;
 
-            if (provider._singletonMadeScopedServiceTypes.Contains(serviceType))
-                return singletonScope.Value.ServiceProvider.GetService(serviceType);
-
-            return _newScope.Value.ServiceProvider.GetService(serviceType);
+            return _singletonScope.Value.ServiceProvider.GetService(serviceType);
         }
 
         public void Dispose() { }
@@ -157,9 +164,9 @@ public sealed class TestHost(
     TestServiceProvider serviceProvider
 ) : IHost
 {
-    private readonly IServiceScope _scope = serviceProvider.CreateScope();
     public IServiceProvider Services => _scope.ServiceProvider;
 
+    private readonly IServiceScope _scope = serviceProvider.CreateScope();
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         var hostedServices = _scope.ServiceProvider.GetServices<IHostedService>();
@@ -167,10 +174,13 @@ public sealed class TestHost(
             await hostedService.StartAsync(cancellationToken);
     }
 
-    public Task StopAsync(CancellationToken cancellationToken = default)
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
+        var hostedServices = _scope.ServiceProvider.GetServices<IHostedService>();
+        foreach (var hostedService in hostedServices)
+            await hostedService.StopAsync(cancellationToken);
+
         _scope.Dispose();
-        return Task.CompletedTask;
     }
 
     public void Dispose()
