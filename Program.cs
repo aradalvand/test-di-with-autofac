@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 var services = new ServiceCollection();
 services.AddSingleton<IFoo, Foo1>();
 services.AddScoped<IBar, Bar1>();
+services.Configure<Fuck>(f => f.Count = 123);
 services.AddHostedService<Worker>();
 // services.AddSingleton<IServiceScopeFactory, S>();
 
@@ -74,6 +75,7 @@ public class Bar1 : IBar;
 
 public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 {
+    private readonly Dictionary<Type, List<object>> _singletonInstances = [];
     private readonly List<Type> _singletonMadeScopedServiceTypes = [];
     private readonly ServiceProvider _underlyingProvider;
     private readonly Lazy<IServiceScope> _singletonScope;
@@ -81,9 +83,10 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
     {
         foreach (var singletonService in services.Where(s => s.Lifetime is ServiceLifetime.Singleton).ToList())
         {
-            var scopedEquivalent = singletonService.WithLifetime(ServiceLifetime.Scoped);
+            var scopedEquivalent = singletonService.WithLifetime(ServiceLifetime.Scoped, out var implementationInstance);
             services.Remove(singletonService);
             services.Add(scopedEquivalent);
+
 
             _singletonMadeScopedServiceTypes.Add(singletonService.ServiceType);
         }
@@ -117,38 +120,6 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
     }
 }
 
-public static class ServiceDescriptorExtensions
-{
-    public static ServiceDescriptor WithLifetime(
-        this ServiceDescriptor service,
-        ServiceLifetime newLifetime,
-        bool tolerateSingleInstanceRemoval = false
-    )
-    {
-        if (service.Lifetime == newLifetime)
-            return service;
-
-        if (service.IsKeyedService)
-        {
-            if (!tolerateSingleInstanceRemoval && service.KeyedImplementationInstance is not null) // NOTE: This entails `service` is singleton.
-                throw new InvalidOperationException();
-
-            if (service.KeyedImplementationFactory is not null)
-                return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationFactory, newLifetime);
-
-            return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationType!, newLifetime);
-        }
-
-        if (!tolerateSingleInstanceRemoval && service.ImplementationInstance is not null) // NOTE: This entails `service` is singleton.
-            throw new InvalidOperationException();
-
-        if (service.ImplementationFactory is not null)
-            return new ServiceDescriptor(service.ServiceType, service.ImplementationFactory, newLifetime);
-
-        return new ServiceDescriptor(service.ServiceType, service.ImplementationType!, newLifetime);
-    }
-}
-
 public sealed class TestHost(
     TestServiceProvider serviceProvider
 ) : IHost
@@ -176,4 +147,69 @@ public sealed class TestHost(
     {
         _scope.Dispose();
     }
+}
+
+public static class ServiceDescriptorExtensions
+{
+    public static ServiceDescriptor WithLifetime(
+        this ServiceDescriptor service,
+        ServiceLifetime newLifetime
+    )
+    {
+        if (service.Lifetime == newLifetime)
+            return service;
+
+        if (service.IsKeyedService)
+        {
+            if (service.KeyedImplementationInstance is not null) // NOTE: This entails `service` is singleton.
+                throw new InvalidOperationException($"Keyed singleton service {service} has implementation instance {service.KeyedImplementationInstance} and cannot be turned into {newLifetime}");
+
+            if (service.KeyedImplementationFactory is not null)
+                return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationFactory, newLifetime);
+
+            return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationType!, newLifetime);
+        }
+
+        if (service.ImplementationInstance is not null) // NOTE: This entails `service` is singleton.
+            throw new InvalidOperationException($"Singleton service {service} has implementation instance {service.ImplementationInstance} and cannot be turned into {newLifetime}");
+
+        if (service.ImplementationFactory is not null)
+            return new ServiceDescriptor(service.ServiceType, service.ImplementationFactory, newLifetime);
+
+        return new ServiceDescriptor(service.ServiceType, service.ImplementationType!, newLifetime);
+    }
+    public static ServiceDescriptor WithLifetime(
+        this ServiceDescriptor service,
+        ServiceLifetime newLifetime,
+        out object? implementationInstance
+    )
+    {
+        implementationInstance = null;
+        if (service.Lifetime == newLifetime)
+            return service;
+
+        if (service.IsKeyedService)
+        {
+            if (service.KeyedImplementationInstance is not null)
+                implementationInstance = service.KeyedImplementationFactory;
+
+            if (service.KeyedImplementationFactory is not null)
+                return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationFactory, newLifetime);
+
+            return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationType!, newLifetime);
+        }
+
+        if (service.ImplementationInstance is not null)
+            implementationInstance = service.ImplementationInstance;
+
+        if (service.ImplementationFactory is not null)
+            return new ServiceDescriptor(service.ServiceType, service.ImplementationFactory, newLifetime);
+
+        return new ServiceDescriptor(service.ServiceType, service.ImplementationType!, newLifetime);
+    }
+}
+
+public record Fuck
+{
+    public int Count { get; set; }
 }
