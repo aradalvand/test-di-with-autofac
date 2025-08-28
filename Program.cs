@@ -1,6 +1,5 @@
-﻿using System.Collections.Immutable;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 var services = new ServiceCollection();
 services.AddSingleton<IFoo, Foo1>();
@@ -8,9 +7,9 @@ services.AddScoped<IBar, Bar1>();
 // services.AddSingleton<IServiceScopeFactory, S>();
 
 // var sp = services.BuildServiceProvider();
-var sp = new CustomServiceProvider(services);
+var host = new CustomHost(services);
 
-using (var scope = sp.CreateScope())
+using (var scope = host.Services.CreateScope())
 {
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
@@ -26,7 +25,7 @@ using (var scope = sp.CreateScope())
     }
 }
 Console.WriteLine("---");
-using (var scope = sp.CreateScope())
+using (var scope = host.Services.CreateScope())
 {
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
@@ -126,5 +125,30 @@ public static class ServiceDescriptorExtensions
             return new ServiceDescriptor(service.ServiceType, service.ImplementationFactory, newLifetime);
 
         return new ServiceDescriptor(service.ServiceType, service.ImplementationType!, newLifetime);
+    }
+}
+
+public sealed class CustomHost(
+    IServiceCollection serviceDescriptors
+) : IHost
+{
+    public IServiceProvider Services { get; } = new CustomServiceProvider(serviceDescriptors);
+
+    public async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        var hostedServices = Services.GetServices<IHostedService>();
+        foreach (var hostedService in hostedServices) // NOTE: We run the hosted services' `StartAsync` in order and sequentially because that's the standard behavior of the built-in hosts.
+            await hostedService.StartAsync(cancellationToken);
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        var hostedServices = Services.GetServices<IHostedService>();
+        foreach (var hostedService in hostedServices)
+            await hostedService.StopAsync(cancellationToken);
+    }
+
+    public void Dispose()
+    {
     }
 }
