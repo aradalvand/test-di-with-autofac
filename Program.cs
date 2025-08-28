@@ -6,15 +6,13 @@ using Microsoft.Extensions.Hosting;
 var services = new ServiceCollection();
 services.AddSingleton<IFoo, Foo1>();
 services.AddSingleton<IBar, Bar1>();
-services.AddSingleton<Worker>();
+services.AddHostedService<Worker>();
 
 var sp = new TestServiceProvider(services);
-// var host1 = new TestHost(sp);
-// await host1.StartAsync();
-using (var scope = sp.CreateScope())
+var host1 = new TestHost(sp);
+await host1.StartAsync();
+using (var scope = host1.Services.CreateScope())
 {
-    var worker = scope.ServiceProvider.GetRequiredService<Worker>();
-    worker.Do();
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
@@ -28,38 +26,44 @@ using (var scope = sp.CreateScope())
         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
 }
-// await host1.StopAsync();
+await host1.StopAsync();
 
 Console.WriteLine("---");
 
 // var host2 = new TestHost(sp);
 // await host2.StartAsync();
-using (var scope = sp.CreateScope())
-{
-    var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
-    var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
-    Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
-    Console.WriteLine($"SCOPED IBar: {scopedBar.GetHashCode()}");
+// using (var scope = sp.CreateScope())
+// {
+//     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
+//     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
+//     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
+//     Console.WriteLine($"SCOPED IBar: {scopedBar.GetHashCode()}");
 
-    using (var scope2 = scope.ServiceProvider.CreateScope())
-    {
-        var scopedFoo2 = scope2.ServiceProvider.GetRequiredService<IFoo>();
-        var scopedBar2 = scope2.ServiceProvider.GetRequiredService<IBar>();
-        Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
-        Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
-    }
-}
+//     using (var scope2 = scope.ServiceProvider.CreateScope())
+//     {
+//         var scopedFoo2 = scope2.ServiceProvider.GetRequiredService<IFoo>();
+//         var scopedBar2 = scope2.ServiceProvider.GetRequiredService<IBar>();
+//         Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
+//         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
+//     }
+// }
 // await host2.StopAsync();
 
 public sealed class Worker(
     IServiceProvider serviceProvider
-)
+) : BackgroundService
 {
     public void Do()
     {
         using var scope = serviceProvider.CreateScope();
         var foo = scope.ServiceProvider.GetRequiredService<IFoo>();
         Console.WriteLine($"Worker — serviceProvider {serviceProvider.GetType()} / {serviceProvider.GetHashCode()} — IFoo {foo.GetHashCode()}"); // TODO: the `IFoo`'s GetHashCode here will be different than the ones in the Console.WriteLines above
+    }
+
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        Do();
+        return Task.CompletedTask;
     }
 }
 
