@@ -11,6 +11,9 @@ services.AddHostedService<Worker>();
 var sp = new TestServiceProvider(services);
 var host1 = new TestHost(sp);
 await host1.StartAsync();
+
+var d = ActivatorUtilities.GetServiceOrCreateInstance<Dependent>(host1.Services);
+d.Do();
 using (var scope = sp.CreateScope())
 {
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
@@ -67,6 +70,13 @@ public sealed class Worker(
     }
 }
 
+public sealed class Dependent(
+    IFoo foo
+)
+{
+    public void Do() => Console.WriteLine(foo.GetHashCode());
+}
+
 public interface IFoo;
 public class Foo1 : IFoo;
 
@@ -75,7 +85,6 @@ public class Bar1 : IBar;
 
 public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 {
-    private readonly Dictionary<Type, List<object>> _singletonInstances = [];
     private readonly List<Type> _singletonMadeScopedServiceTypes = [];
     private readonly ServiceProvider _underlyingProvider;
     private readonly Lazy<IServiceScope> _singletonScope;
@@ -83,10 +92,9 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
     {
         foreach (var singletonService in services.Where(s => s.Lifetime is ServiceLifetime.Singleton).ToList())
         {
-            var scopedEquivalent = singletonService.WithLifetime(ServiceLifetime.Scoped, out var implementationInstance);
+            var scopedEquivalent = singletonService.WithLifetime(ServiceLifetime.Scoped, skipSingletonsWithInstances: true);
             services.Remove(singletonService);
             services.Add(scopedEquivalent);
-
 
             _singletonMadeScopedServiceTypes.Add(singletonService.ServiceType);
         }
@@ -153,7 +161,8 @@ public static class ServiceDescriptorExtensions
 {
     public static ServiceDescriptor WithLifetime(
         this ServiceDescriptor service,
-        ServiceLifetime newLifetime
+        ServiceLifetime newLifetime,
+        bool skipSingletonsWithInstances = false
     )
     {
         if (service.Lifetime == newLifetime)
@@ -162,7 +171,7 @@ public static class ServiceDescriptorExtensions
         if (service.IsKeyedService)
         {
             if (service.KeyedImplementationInstance is not null) // NOTE: This entails `service` is singleton.
-                throw new InvalidOperationException($"Keyed singleton service {service} has implementation instance {service.KeyedImplementationInstance} and cannot be turned into {newLifetime}");
+                return skipSingletonsWithInstances ? service : throw new InvalidOperationException($"Keyed singleton service {service} has implementation instance {service.KeyedImplementationInstance} and cannot be turned into {newLifetime}");
 
             if (service.KeyedImplementationFactory is not null)
                 return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationFactory, newLifetime);
@@ -171,36 +180,7 @@ public static class ServiceDescriptorExtensions
         }
 
         if (service.ImplementationInstance is not null) // NOTE: This entails `service` is singleton.
-            throw new InvalidOperationException($"Singleton service {service} has implementation instance {service.ImplementationInstance} and cannot be turned into {newLifetime}");
-
-        if (service.ImplementationFactory is not null)
-            return new ServiceDescriptor(service.ServiceType, service.ImplementationFactory, newLifetime);
-
-        return new ServiceDescriptor(service.ServiceType, service.ImplementationType!, newLifetime);
-    }
-    public static ServiceDescriptor WithLifetime(
-        this ServiceDescriptor service,
-        ServiceLifetime newLifetime,
-        out object? implementationInstance
-    )
-    {
-        implementationInstance = null;
-        if (service.Lifetime == newLifetime)
-            return service;
-
-        if (service.IsKeyedService)
-        {
-            if (service.KeyedImplementationInstance is not null)
-                implementationInstance = service.KeyedImplementationFactory;
-
-            if (service.KeyedImplementationFactory is not null)
-                return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationFactory, newLifetime);
-
-            return new ServiceDescriptor(service.ServiceType, service.ServiceKey, service.KeyedImplementationType!, newLifetime);
-        }
-
-        if (service.ImplementationInstance is not null)
-            implementationInstance = service.ImplementationInstance;
+            return skipSingletonsWithInstances ? service : throw new InvalidOperationException($"Singleton service {service} has implementation instance {service.KeyedImplementationInstance} and cannot be turned into {newLifetime}");
 
         if (service.ImplementationFactory is not null)
             return new ServiceDescriptor(service.ServiceType, service.ImplementationFactory, newLifetime);
