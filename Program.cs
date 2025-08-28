@@ -117,8 +117,6 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
         TestServiceProvider provider
     ) : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
-        private readonly Lazy<IServiceScope> _newScope = new(provider._underlyingProvider.CreateScope);
-
         IServiceProvider IServiceScope.ServiceProvider => this;
         IServiceScope IServiceScopeFactory.CreateScope() => new Scope(provider);
         object? IServiceProvider.GetService(Type serviceType)
@@ -126,10 +124,7 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
             if (serviceType == typeof(IServiceScopeFactory))
                 return this;
 
-            if (provider._singletonMadeScopedServiceTypes.Contains(serviceType))
-                return provider._singletonScope.Value.ServiceProvider.GetService(serviceType);
-
-            return _newScope.Value.ServiceProvider.GetService(serviceType);
+            return provider._singletonScope.Value.ServiceProvider.GetService(serviceType);
         }
 
         public void Dispose() { }
