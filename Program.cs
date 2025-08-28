@@ -8,14 +8,10 @@ services.AddHostedService<Worker>();
 // services.AddSingleton<IServiceScopeFactory, S>();
 
 var sp = new TestServiceProvider(services);
-// var host1 = new TestHost(sp);
-// await host1.StartAsync();
+var host1 = new TestHost(sp);
+await host1.StartAsync();
 using (var scope = sp.CreateScope())
 {
-    var hostedServices = scope.ServiceProvider.GetServices<IHostedService>();
-    foreach (var hostedService in hostedServices) // NOTE: We run the hosted services' `StartAsync` in order and sequentially because that's the standard behavior of the built-in hosts.
-        await hostedService.StartAsync(default);
-
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
@@ -28,22 +24,15 @@ using (var scope = sp.CreateScope())
         Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
-
-    foreach (var hostedService in hostedServices)
-        await hostedService.StopAsync(default);
 }
-// await host1.StopAsync();
+await host1.StopAsync();
 
 Console.WriteLine("---");
 
-// var host2 = new TestHost(new(services));
-// await host2.StartAsync();
+var host2 = new TestHost(new(services));
+await host2.StartAsync();
 using (var scope = sp.CreateScope())
 {
-    var hostedServices = scope.ServiceProvider.GetServices<IHostedService>();
-    foreach (var hostedService in hostedServices) // NOTE: We run the hosted services' `StartAsync` in order and sequentially because that's the standard behavior of the built-in hosts.
-        await hostedService.StartAsync(default);
-
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
@@ -56,11 +45,8 @@ using (var scope = sp.CreateScope())
         Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
     }
-
-    foreach (var hostedService in hostedServices)
-        await hostedService.StopAsync(default);
 }
-// await host2.StopAsync();
+await host2.StopAsync();
 
 public sealed class Worker(
     IFoo foo
@@ -101,7 +87,7 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
 
             _singletonMadeScopedServiceTypes.Add(singletonService.ServiceType);
         }
-        _underlyingProvider = services.BuildServiceProvider();
+        _underlyingProvider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _singletonScope = new(_underlyingProvider.CreateScope);
     }
 
@@ -183,7 +169,7 @@ public sealed class TestHost(
         foreach (var hostedService in hostedServices)
             await hostedService.StopAsync(cancellationToken);
 
-        _scope.Dispose();
+        Dispose();
     }
 
     public void Dispose()
