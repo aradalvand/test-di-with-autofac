@@ -20,15 +20,25 @@ using (var scope = sp.CreateScope())
         Console.WriteLine($"SCOPED: {scopedFoo2.GetHashCode()}");
     }
 }
+using (var otherScope = sp.CreateScope())
+{
+    var scopedFoo = otherScope.ServiceProvider.GetRequiredService<IFoo>();
+    Console.WriteLine($"SCOPED: {scopedFoo.GetHashCode()}");
+
+    using (var scope2 = otherScope.ServiceProvider.CreateScope())
+    {
+        var scopedFoo2 = scope2.ServiceProvider.GetRequiredService<IFoo>();
+        Console.WriteLine($"SCOPED: {scopedFoo2.GetHashCode()}");
+    }
+}
 
 public interface IFoo;
 public class Foo1 : IFoo;
 
-public sealed class CustomServiceProvider : IServiceProvider, IDisposable
+public sealed class CustomServiceProvider : IServiceProvider
 {
     private readonly List<Type> _singletonMadeScopedServiceTypes = [];
     private readonly ServiceProvider _underlyingProvider;
-    private readonly IServiceScope _singletonScope;
     private readonly ScopeFactory _scopeFactory;
     public CustomServiceProvider(IServiceCollection services)
     {
@@ -41,7 +51,6 @@ public sealed class CustomServiceProvider : IServiceProvider, IDisposable
             _singletonMadeScopedServiceTypes.Add(singletonService.ServiceType);
         }
         _underlyingProvider = services.BuildServiceProvider();
-        _singletonScope = _underlyingProvider.CreateScope();
         _scopeFactory = new(this);
     }
 
@@ -52,9 +61,6 @@ public sealed class CustomServiceProvider : IServiceProvider, IDisposable
 
         return _underlyingProvider.GetService(serviceType);
     }
-
-    public void Dispose() =>
-        _singletonScope.Dispose();
 
     private sealed class ScopeFactory(
         CustomServiceProvider parent
@@ -67,19 +73,20 @@ public sealed class CustomServiceProvider : IServiceProvider, IDisposable
     private sealed class Scope(
         CustomServiceProvider provider,
         ScopeFactory scopeFactory
-    ) : IServiceScope, IServiceProvider
+    ) : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
         private readonly IServiceScope _scope = provider._underlyingProvider.CreateScope();
         public IServiceProvider ServiceProvider => this;
+
+        public IServiceScope CreateScope() => this;
+
         public void Dispose() { }
 
         public object? GetService(Type serviceType)
         {
             if (serviceType == typeof(IServiceScopeFactory))
-                return scopeFactory;
+                return this;
 
-            if (provider._singletonMadeScopedServiceTypes.Contains(serviceType))
-                return provider._singletonScope.ServiceProvider.GetService(serviceType);
             return _scope.ServiceProvider.GetService(serviceType);
         }
     }
