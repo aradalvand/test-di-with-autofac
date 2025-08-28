@@ -60,7 +60,7 @@ public sealed class Worker(
         {
             using var scope = serviceProvider.CreateScope();
             var foo = scope.ServiceProvider.GetRequiredService<IFoo>();
-            Console.WriteLine($"Worker — serviceProvider {serviceProvider.GetType()} / {serviceProvider.GetHashCode()} — IFoo {foo.GetHashCode()}"); // TODO: FUCKt's
+            Console.WriteLine($"Worker — serviceProvider {serviceProvider.GetType()} / {serviceProvider.GetHashCode()} — IFoo {foo.GetHashCode()}"); // TODO: the `IFoo`'s GetHashCode here will be different than the ones in the Console.WriteLines above
             await Task.Delay(100_000, stoppingToken);
         }
         finally
@@ -69,12 +69,6 @@ public sealed class Worker(
         }
     }
 }
-
-// public sealed class Dependent(
-// )
-// {
-//     public void Do() => Console.WriteLine(foo.GetHashCode());
-// }
 
 public interface IFoo;
 public class Foo1 : IFoo;
@@ -119,6 +113,9 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
         {
             if (serviceType == typeof(IServiceScopeFactory))
                 return this;
+
+            if (serviceType == typeof(IServiceProvider))
+                return this; // Inject this scope, not the singleton scope
 
             return provider._singletonScope.Value.ServiceProvider.GetService(serviceType);
         }
