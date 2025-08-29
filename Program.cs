@@ -5,7 +5,7 @@ using Microsoft.Extensions.Hosting;
 
 var services = new ServiceCollection();
 services.AddSingleton<IFoo, Foo1>();
-services.AddSingleton<IBar, Bar1>();
+services.AddScoped<IBar, Bar1>();
 services.AddHostedService<Worker>();
 
 var sp = new TestServiceProvider(services);
@@ -14,16 +14,17 @@ await host1.StartAsync();
 using (var scope = host1.Services.CreateScope())
 {
     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
-    var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
+    var scopedBar1 = scope.ServiceProvider.GetRequiredService<IBar>();
+    var scopedBar2 = scope.ServiceProvider.GetRequiredService<IBar>();
     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
-    Console.WriteLine($"SCOPED IBar: {scopedBar.GetHashCode()}");
+    Console.WriteLine($"SCOPED IBar: {scopedBar1.GetHashCode()} - {scopedBar2.GetHashCode()}");
 
     using (var scope2 = scope.ServiceProvider.CreateScope())
     {
         var scopedFoo2 = scope2.ServiceProvider.GetRequiredService<IFoo>();
-        var scopedBar2 = scope2.ServiceProvider.GetRequiredService<IBar>();
+        var scopedBar3 = scope2.ServiceProvider.GetRequiredService<IBar>();
         Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
-        Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
+        Console.WriteLine($"SCOPED IBar: {scopedBar3.GetHashCode()}");
     }
 }
 await host1.StopAsync();
