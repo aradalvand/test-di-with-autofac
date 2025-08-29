@@ -116,7 +116,10 @@ public sealed class TestServiceProvider : IServiceProvider, IServiceScopeFactory
             return _scope.Resolve(serviceType);
         }
 
-        public void Dispose() { }
+        public void Dispose()
+        {
+            _scope.Dispose();
+        }
     }
 }
 
