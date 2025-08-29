@@ -31,24 +31,24 @@ await host1.StopAsync();
 
 Console.WriteLine("---");
 
-// var host2 = new TestHost(sp);
-// await host2.StartAsync();
-// using (var scope = sp.CreateScope())
-// {
-//     var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
-//     var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
-//     Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
-//     Console.WriteLine($"SCOPED IBar: {scopedBar.GetHashCode()}");
+var host2 = new TestHost(sp);
+await host2.StartAsync();
+using (var scope = sp.CreateScope())
+{
+    var scopedFoo = scope.ServiceProvider.GetRequiredService<IFoo>();
+    var scopedBar = scope.ServiceProvider.GetRequiredService<IBar>();
+    Console.WriteLine($"SCOPED IFoo: {scopedFoo.GetHashCode()}");
+    Console.WriteLine($"SCOPED IBar: {scopedBar.GetHashCode()}");
 
-//     using (var scope2 = scope.ServiceProvider.CreateScope())
-//     {
-//         var scopedFoo2 = scope2.ServiceProvider.GetRequiredService<IFoo>();
-//         var scopedBar2 = scope2.ServiceProvider.GetRequiredService<IBar>();
-//         Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
-//         Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
-//     }
-// }
-// await host2.StopAsync();
+    using (var scope2 = scope.ServiceProvider.CreateScope())
+    {
+        var scopedFoo2 = scope2.ServiceProvider.GetRequiredService<IFoo>();
+        var scopedBar2 = scope2.ServiceProvider.GetRequiredService<IBar>();
+        Console.WriteLine($"SCOPED IFoo: {scopedFoo2.GetHashCode()}");
+        Console.WriteLine($"SCOPED IBar: {scopedBar2.GetHashCode()}");
+    }
+}
+await host2.StopAsync();
 
 public sealed class Worker(
     IServiceProvider serviceProvider
