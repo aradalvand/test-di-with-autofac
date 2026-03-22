@@ -3,10 +3,11 @@
 var services = new ServiceCollection();
 // services.AddScoped(typeof(IFoo<>), typeof(FooForEverything<>));
 services.AddScoped(typeof(IFoo<>), typeof(FooForSpecials<>));
+services.AddKeyedSingleton<IServiceProviderIsService, StrictServiceProviderIsService>("Sane");
 
-var sp = services.BuildServiceProvider();
+var sp = services.BuildServiceProvider(validateScopes: true);
 
-var isService = sp.GetRequiredService<IServiceProviderIsService>();
+var isService = sp.GetRequiredKeyedService<IServiceProviderIsService>("Sane");
 Console.WriteLine($"IFoo<Special> has services? {isService.IsService(typeof(IFoo<Special>))}");
 Console.WriteLine($"IFoo<object> has services? {isService.IsService(typeof(IFoo<object>))}");
 
@@ -26,3 +27,26 @@ public sealed class FooForSpecials<T> : IFoo<T>
 
 public interface ISpecial;
 public sealed class Special : ISpecial;
+
+public sealed class StrictServiceProviderIsService(
+    IServiceProvider sp,
+    IServiceProviderIsService builtIn
+) : IServiceProviderIsService
+{
+    public bool IsService(Type serviceType)
+    {
+        if (!builtIn.IsService(serviceType))
+            return false;
+        try
+        {
+            _ = sp.GetRequiredService(serviceType);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            if (ex is InvalidOperationException invalid && invalid.Message.StartsWith("Cannot resolve scoped service"))
+                return true; // NOTE: We special the scoping exception.
+            return false;
+        }
+    }
+}
