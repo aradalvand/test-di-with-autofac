@@ -4,16 +4,22 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var services = new ServiceCollection();
-services.AddSingleton(typeof(IFuck<>), typeof(FuckForEverything<>));
-services.AddSingleton(typeof(IFuck<>), typeof(FuckForOmissibles<>));
+// services.AddScoped(typeof(IFuck<>), typeof(FuckForEverything<>));
+services.AddScoped(typeof(IFuck<>), typeof(FuckForOmissibles<>));
 
 var sp = services.BuildServiceProvider();
 
-var one = sp.GetServices<IFuck<Omissible>>();
-Console.WriteLine($"{string.Join(", ", one)}");
+var isService = sp.GetRequiredService<IServiceProviderIsService>();
+Console.WriteLine($"IFuck<Omissible> has services? {isService.IsService(typeof(IFuck<Omissible>))}");
+Console.WriteLine($"IFuck<string> has services? {isService.IsService(typeof(IFuck<string>))}");
 
-var two = sp.GetServices<IFuck<string>>();
-Console.WriteLine($"{string.Join(", ", two)}");
+using var scope = sp.CreateScope();
+
+var one = scope.ServiceProvider.GetServices<IFuck<Omissible>>();
+Console.WriteLine($"For IFuck<Omissible>: ({one.Count()}) {string.Join(", ", one)}");
+
+var two = scope.ServiceProvider.GetServices<IFuck<string>>();
+Console.WriteLine($"For IFuck<string>: ({two.Count()}) {string.Join(", ", two)}");
 
 public interface IFuck<T>;
 
